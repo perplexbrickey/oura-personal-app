@@ -1,0 +1,37 @@
+# Environment variables and secrets
+.env
+.env.local
+.env.*.local
+
+# Oura API credentials
+credentials.json
+config.json
+*_credentials.json
+
+# Personal health data
+data/
+*.csv
+*.json
+oura_data/
+exports/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
