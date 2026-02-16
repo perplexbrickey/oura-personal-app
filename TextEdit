@@ -1,0 +1,338 @@
+#!/usr/bin/env python3
+"""
+Oura Personal Dashboard - Streamlit App
+Your personal health data visualization
+"""
+
+import streamlit as st
+import pandas as pd
+import plotly.graph_objects as go
+import plotly.express as px
+from datetime import datetime, timedelta
+import requests
+import os
+from dotenv import load_dotenv
+
+# Load credentials
+load_dotenv()
+ACCESS_TOKEN = os.getenv('ACCESS_TOKEN')
+
+# Oura API setup
+headers = {'Authorization': f'Bearer {ACCESS_TOKEN}'}
+BASE_URL = 'https://api.ouraring.com/v2/usercollection'
+
+# Page config
+st.set_page_config(
+    page_title="Oura Personal Dashboard",
+    page_icon="💍",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# Custom CSS
+st.markdown("""
+<style>
+    .main-header {
+        font-size: 3rem;
+        font-weight: bold;
+        background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+    }
+    .metric-container {
+        background: #f8f9fa;
+        padding: 20px;
+        border-radius: 10px;
+        border-left: 4px solid #667eea;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# Helper functions
+@st.cache_data(ttl=3600)
+def fetch_sleep_data(days=30):
+    """Fetch sleep data from Oura API"""
+    end_date = datetime.now().strftime('%Y-%m-%d')
+    start_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
+    
+    response = requests.get(
+        f'{BASE_URL}/sleep?start_date={start_date}&end_date={end_date}',
+        headers=headers
+    )
+    
+    if response.status_code == 200:
+        data = response.json().get('data', [])
+        return pd.DataFrame(data) if data else pd.DataFrame()
+    return pd.DataFrame()
+
+@st.cache_data(ttl=3600)
+def fetch_daily_activity(days=30):
+    """Fetch daily activity data from Oura API"""
+    end_date = datetime.now().strftime('%Y-%m-%d')
+    start_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
+    
+    response = requests.get(
+        f'{BASE_URL}/daily_activity?start_date={start_date}&end_date={end_date}',
+        headers=headers
+    )
+    
+    if response.status_code == 200:
+        data = response.json().get('data', [])
+        return pd.DataFrame(data) if data else pd.DataFrame()
+    return pd.DataFrame()
+
+@st.cache_data(ttl=3600)
+def fetch_readiness(days=30):
+    """Fetch readiness data from Oura API"""
+    end_date = datetime.now().strftime('%Y-%m-%d')
+    start_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
+    
+    response = requests.get(
+        f'{BASE_URL}/daily_readiness?start_date={start_date}&end_date={end_date}',
+        headers=headers
+    )
+    
+    if response.status_code == 200:
+        data = response.json().get('data', [])
+        return pd.DataFrame(data) if data else pd.DataFrame()
+    return pd.DataFrame()
+
+# Main Dashboard
+st.markdown('<h1 class="main-header">💍 Oura Personal Dashboard</h1>', unsafe_allow_html=True)
+st.markdown("### Your Health Data at a Glance")
+
+# Sidebar
+with st.sidebar:
+    st.header("⚙️ Settings")
+    days_range = st.slider("Days to Display", 7, 90, 30)
+    
+    st.markdown("---")
+    st.markdown("**📊 Data Sections:**")
+    show_sleep = st.checkbox("Sleep Analysis", value=True)
+    show_activity = st.checkbox("Daily Activity", value=True)
+    show_readiness = st.checkbox("Readiness Score", value=True)
+    
+    st.markdown("---")
+    if st.button("🔄 Refresh Data", type="primary", use_container_width=True):
+        st.cache_data.clear()
+        st.rerun()
+    
+    st.markdown("---")
+    st.caption(f"📅 Last updated: {datetime.now().strftime('%I:%M %p')}")
+
+# Fetch data
+with st.spinner('📡 Loading your health data...'):
+    sleep_df = fetch_sleep_data(days_range) if show_sleep else pd.DataFrame()
+    activity_df = fetch_daily_activity(days_range) if show_activity else pd.DataFrame()
+    readiness_df = fetch_readiness(days_range) if show_readiness else pd.DataFrame()
+
+# Key Metrics Row
+st.markdown("---")
+st.markdown("## 📊 Current Status")
+
+col1, col2, col3 = st.columns(3)
+
+with col1:
+    if not sleep_df.empty and 'score' in sleep_df.columns:
+        latest_sleep_score = sleep_df.iloc[0]['score']
+        avg_sleep_score = sleep_df['score'].mean()
+        delta = latest_sleep_score - avg_sleep_score
+        st.metric(
+            "💤 Sleep Score", 
+            f"{latest_sleep_score}",
+            f"{delta:+.1f} vs avg",
+            delta_color="normal" if delta >= 0 else "inverse"
+        )
+        
+        if 'total_sleep_duration' in sleep_df.columns:
+            hours = sleep_df.iloc[0]['total_sleep_duration'] / 3600
+            st.caption(f"⏰ Last night: **{hours:.1f} hours**")
+    else:
+        st.metric("💤 Sleep Score", "No data")
+
+with col2:
+    if not activity_df.empty and 'score' in activity_df.columns:
+        latest_activity = activity_df.iloc[0]['score']
+        avg_activity = activity_df['score'].mean()
+        delta = latest_activity - avg_activity
+        st.metric(
+            "🏃 Activity Score",
+            f"{latest_activity}",
+            f"{delta:+.1f} vs avg",
+            delta_color="normal" if delta >= 0 else "inverse"
+        )
+        
+        if 'steps' in activity_df.columns:
+            steps = activity_df.iloc[0]['steps']
+            st.caption(f"👣 Yesterday: **{steps:,} steps**")
+    else:
+        st.metric("🏃 Activity Score", "No data")
+
+with col3:
+    if not readiness_df.empty and 'score' in readiness_df.columns:
+        latest_readiness = readiness_df.iloc[0]['score']
+        avg_readiness = readiness_df['score'].mean()
+        delta = latest_readiness - avg_readiness
+        st.metric(
+            "⚡ Readiness",
+            f"{latest_readiness}",
+            f"{delta:+.1f} vs avg",
+            delta_color="normal" if delta >= 0 else "inverse"
+        )
+        
+        # Add interpretation
+        if latest_readiness >= 85:
+            st.caption("🟢 **Optimal** - Ready to perform")
+        elif latest_readiness >= 70:
+            st.caption("🟡 **Good** - Normal day ahead")
+        else:
+            st.caption("🔴 **Low** - Consider recovery")
+    else:
+        st.metric("⚡ Readiness", "No data")
+
+# Sleep Analysis Section
+if show_sleep and not sleep_df.empty:
+    st.markdown("---")
+    st.header("😴 Sleep Analysis")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if 'day' in sleep_df.columns and 'score' in sleep_df.columns:
+            fig_sleep = px.line(
+                sleep_df,
+                x='day',
+                y='score',
+                title='Sleep Score Trend',
+                labels={'day': 'Date', 'score': 'Sleep Score'}
+            )
+            fig_sleep.update_traces(line_color='#5B8BFF', line_width=3)
+            fig_sleep.add_hline(y=85, line_dash="dash", line_color="green", 
+                               annotation_text="Optimal (85+)")
+            fig_sleep.update_layout(height=400)
+            st.plotly_chart(fig_sleep, use_container_width=True)
+    
+    with col2:
+        if 'day' in sleep_df.columns and 'total_sleep_duration' in sleep_df.columns:
+            sleep_df['hours'] = sleep_df['total_sleep_duration'] / 3600
+            fig_duration = px.bar(
+                sleep_df,
+                x='day',
+                y='hours',
+                title='Sleep Duration (Hours)',
+                labels={'day': 'Date', 'hours': 'Hours'}
+            )
+            fig_duration.update_traces(marker_color='#9B7EBD')
+            fig_duration.add_hline(y=8, line_dash="dash", line_color="green", 
+                                  annotation_text="Target (8hrs)")
+            fig_duration.update_layout(height=400)
+            st.plotly_chart(fig_duration, use_container_width=True)
+    
+    # Sleep stages breakdown
+    if all(col in sleep_df.columns for col in ['deep_sleep_duration', 'rem_sleep_duration', 'light_sleep_duration']):
+        st.subheader("Sleep Stages Breakdown")
+        
+        latest_sleep = sleep_df.iloc[0]
+        deep_hours = latest_sleep['deep_sleep_duration'] / 3600
+        rem_hours = latest_sleep['rem_sleep_duration'] / 3600
+        light_hours = latest_sleep['light_sleep_duration'] / 3600
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("🌊 Deep Sleep", f"{deep_hours:.1f}h")
+        with col2:
+            st.metric("💭 REM Sleep", f"{rem_hours:.1f}h")
+        with col3:
+            st.metric("☁️ Light Sleep", f"{light_hours:.1f}h")
+
+# Activity Section
+if show_activity and not activity_df.empty:
+    st.markdown("---")
+    st.header("🏃 Daily Activity")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if 'day' in activity_df.columns and 'score' in activity_df.columns:
+            fig_activity = px.line(
+                activity_df,
+                x='day',
+                y='score',
+                title='Activity Score Trend',
+                labels={'day': 'Date', 'score': 'Activity Score'}
+            )
+            fig_activity.update_traces(line_color='#FF6B6B', line_width=3)
+            fig_activity.add_hline(y=85, line_dash="dash", line_color="green", 
+                                  annotation_text="Target (85+)")
+            fig_activity.update_layout(height=400)
+            st.plotly_chart(fig_activity, use_container_width=True)
+    
+    with col2:
+        if 'day' in activity_df.columns and 'steps' in activity_df.columns:
+            fig_steps = px.bar(
+                activity_df,
+                x='day',
+                y='steps',
+                title='Daily Steps',
+                labels={'day': 'Date', 'steps': 'Steps'}
+            )
+            fig_steps.update_traces(marker_color='#4ECDC4')
+            fig_steps.add_hline(y=10000, line_dash="dash", line_color="green", 
+                               annotation_text="Target (10k)")
+            fig_steps.update_layout(height=400)
+            st.plotly_chart(fig_steps, use_container_width=True)
+    
+    # Activity summary
+    if 'steps' in activity_df.columns:
+        avg_steps = int(activity_df['steps'].mean())
+        total_steps = int(activity_df['steps'].sum())
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("📊 Average Steps/Day", f"{avg_steps:,}")
+        with col2:
+            st.metric("🎯 Total Steps (Period)", f"{total_steps:,}")
+
+# Readiness Section
+if show_readiness and not readiness_df.empty:
+    st.markdown("---")
+    st.header("⚡ Readiness Score")
+    
+    if 'day' in readiness_df.columns and 'score' in readiness_df.columns:
+        fig_readiness = px.line(
+            readiness_df,
+            x='day',
+            y='score',
+            title='Readiness Score Trend',
+            labels={'day': 'Date', 'score': 'Readiness Score'}
+        )
+        fig_readiness.update_traces(line_color='#FFD93D', line_width=3)
+        fig_readiness.add_hline(y=85, line_dash="dash", line_color="green", 
+                               annotation_text="Optimal (85+)")
+        fig_readiness.add_hline(y=70, line_dash="dash", line_color="orange", 
+                               annotation_text="Good (70+)")
+        fig_readiness.update_layout(height=400)
+        st.plotly_chart(fig_readiness, use_container_width=True)
+    
+    # Readiness stats
+    if 'score' in readiness_df.columns:
+        optimal_days = len(readiness_df[readiness_df['score'] >= 85])
+        good_days = len(readiness_df[(readiness_df['score'] >= 70) & (readiness_df['score'] < 85)])
+        low_days = len(readiness_df[readiness_df['score'] < 70])
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("🟢 Optimal Days", optimal_days)
+        with col2:
+            st.metric("🟡 Good Days", good_days)
+        with col3:
+            st.metric("🔴 Recovery Days", low_days)
+
+# Footer
+st.markdown("---")
+st.markdown("""
+<div style='text-align: center; color: #666; padding: 20px;'>
+    <p>💍 Oura Personal Dashboard | Data cached for 1 hour | Click Refresh to update</p>
+    <p>Built with Streamlit • Data from Oura API</p>
+</div>
+""", unsafe_allow_html=True)

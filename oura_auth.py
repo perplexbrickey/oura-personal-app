@@ -151,3 +151,116 @@ def main():
 
 if __name__ == '__main__':
     main()
+def get_oura_data():
+    """
+    Fetch today's health data from Oura API
+    Returns a dictionary with key health metrics
+    """
+    import os
+    from datetime import datetime, timedelta
+    import requests
+    from dotenv import load_dotenv
+    import streamlit as st  # ADD THIS LINE
+    
+    # Load environment variables from .env
+    load_dotenv()
+    
+    # CHANGE THIS LINE:
+    access_token = st.secrets.get('OURA_ACCESS_TOKEN', os.getenv('OURA_ACCESS_TOKEN'))
+    if not access_token:
+        raise ValueError("OURA_ACCESS_TOKEN not found in .env file. Please run authentication first.")
+    
+    headers = {
+        'Authorization': f'Bearer {access_token}'
+    }
+    
+    # Get date range (last 2 days to ensure we get data)
+    today = datetime.now().date()
+    two_days_ago = today - timedelta(days=2)
+    
+    # Initialize result dictionary
+    result = {
+        'sleep_score': 'N/A',
+        'readiness_score': 'N/A',
+        'activity_score': 'N/A',
+        'heart_rate': 'N/A',
+        'hrv': 'N/A',
+        'temperature': 'N/A',
+        'total_sleep': 'N/A'
+    }
+    
+    try:
+        # Fetch daily sleep data
+        sleep_url = f'https://api.ouraring.com/v2/usercollection/daily_sleep?start_date={two_days_ago}&end_date={today}'
+        sleep_response = requests.get(sleep_url, headers=headers)
+        if sleep_response.status_code == 200:
+            sleep_data = sleep_response.json()
+            if sleep_data.get('data') and len(sleep_data['data']) > 0:
+                latest_sleep = sleep_data['data'][-1]  # Get most recent
+                result['sleep_score'] = latest_sleep.get('score', 'N/A')
+                
+                # Get total sleep duration
+                total_sleep_seconds = latest_sleep.get('total_sleep_duration', 0)
+                if total_sleep_seconds and total_sleep_seconds > 0:
+                    result['total_sleep'] = round(total_sleep_seconds / 3600, 1)
+                
+                # Get average heart rate from sleep
+                avg_hr = latest_sleep.get('average_heart_rate')
+                if avg_hr:
+                    result['heart_rate'] = round(avg_hr)
+                
+                # Get HRV from sleep data
+                hrv_avg = latest_sleep.get('average_hrv')
+                if hrv_avg:
+                    result['hrv'] = round(hrv_avg)
+        
+        # Fetch daily readiness data
+        readiness_url = f'https://api.ouraring.com/v2/usercollection/daily_readiness?start_date={two_days_ago}&end_date={today}'
+        readiness_response = requests.get(readiness_url, headers=headers)
+        if readiness_response.status_code == 200:
+            readiness_data = readiness_response.json()
+            if readiness_data.get('data') and len(readiness_data['data']) > 0:
+                latest_readiness = readiness_data['data'][-1]
+                result['readiness_score'] = latest_readiness.get('score', 'N/A')
+                
+                # Get temperature deviation
+                temp_deviation = latest_readiness.get('temperature_deviation')
+                if temp_deviation is not None:
+                    result['temperature'] = f"{temp_deviation:+.2f}"
+        
+        # Fetch daily activity data
+        activity_url = f'https://api.ouraring.com/v2/usercollection/daily_activity?start_date={two_days_ago}&end_date={today}'
+        activity_response = requests.get(activity_url, headers=headers)
+        if activity_response.status_code == 200:
+            activity_data = activity_response.json()
+            if activity_data.get('data') and len(activity_data['data']) > 0:
+                latest_activity = activity_data['data'][-1]
+                result['activity_score'] = latest_activity.get('score', 'N/A')
+                
+                # Override heart rate with activity data if available
+                avg_hr_activity = latest_activity.get('average_met_minutes')
+                if not result['heart_rate'] or result['heart_rate'] == 'N/A':
+                    low_hr = latest_activity.get('low_activity_met_minutes')
+                    if low_hr:
+                        result['heart_rate'] = 'Activity tracked'
+        
+        # Fetch heart rate data for more accurate HR
+        heart_rate_url = f'https://api.ouraring.com/v2/usercollection/heartrate?start_datetime={two_days_ago}T00:00:00&end_datetime={today}T23:59:59'
+        hr_response = requests.get(heart_rate_url, headers=headers)
+        if hr_response.status_code == 200:
+            hr_data = hr_response.json()
+            if hr_data.get('data') and len(hr_data['data']) > 0:
+                # Get most recent heart rate
+                recent_hr = hr_data['data'][-1].get('bpm')
+                if recent_hr:
+                    result['heart_rate'] = round(recent_hr)
+        
+        return result
+    
+    except requests.exceptions.RequestException as e:
+        print(f"Error fetching Oura data: {e}")
+        return result
+    except Exception as e:
+        print(f"Unexpected error: {e}")
+        return result
+
